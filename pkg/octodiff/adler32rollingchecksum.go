@@ -17,8 +17,8 @@ func (_ *Adler32RollingChecksum) Calculate(block []byte) uint32 {
 	b := uint32(0)
 
 	for _, z := range block {
-		a = uint32(z) + a
-		b = b + a
+		a = (uint32(z) + a) & 0xffff
+		b = (b + a) & 0xffff
 	}
 	return (b << 16) | a
 }
@@ -27,8 +27,8 @@ func (_ *Adler32RollingChecksum) Rotate(checksum uint32, remove byte, add byte, 
 	b := checksum >> 16 & 0xffff
 	a := checksum & 0xffff
 
-	a = a - uint32(remove) + uint32(add)
-	b = b - (uint32(chunkSize) * uint32(remove)) + a - 1
+	a = (a - uint32(remove) + uint32(add)) & 0xffff
+	b = (b - (uint32(chunkSize) * uint32(remove)) + a - 1) & 0xffff
 
 	return (b << 16) | a
 }

@@ -27,8 +27,8 @@ func (_ *Adler32RollingChecksumV2) Rotate(checksum uint32, remove byte, add byte
 	b := checksum >> 16 & 0xffff
 	a := checksum & 0xffff
 
-	a = (a - uint32(remove) + uint32(add)) % Modulus
-	b = (b - (uint32(chunkSize) * uint32(remove)) + a - 1) % Modulus
+	a = ((a - uint32(remove) + uint32(add)) % Modulus) & 0xffff
+	b = ((b - (uint32(chunkSize) * uint32(remove)) + a - 1) % Modulus) & 0xffff
 
 	return (b << 16) | a
 }

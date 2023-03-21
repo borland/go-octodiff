@@ -22,6 +22,9 @@ func TestAdler32RollingChecksum_Calculate(t *testing.T) {
 	assert.Equal(t, uint32(2476743237), c.Calculate(block[2:102]))
 	assert.Equal(t, uint32(591925890), c.Calculate(block[93:193]))
 	assert.Equal(t, uint32(4037189623), c.Calculate(block))
+
+	largeBlock := test.GenerateTestData(100 * 1024)
+	assert.Equal(t, uint32(2928347280), c.Calculate(largeBlock))
 }
 
 func TestAdler32RollingChecksum_Rotate(t *testing.T) {

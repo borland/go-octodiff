@@ -85,10 +85,6 @@ func signatureRun(opts *SignatureOptions) error {
 	defer func() { _ = signatureFile.Close() }()
 
 	signatureBuilder := octodiff.NewSignatureBuilder()
-	// TODO apply config?
 
-	// TODO close files
 	return signatureBuilder.Build(basisFile, basisFileInfo.Size(), signatureFile)
-
-	return nil
 }
