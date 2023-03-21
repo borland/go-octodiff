@@ -85,6 +85,8 @@ func signatureRun(opts *SignatureOptions) error {
 	defer func() { _ = signatureFile.Close() }()
 
 	signatureBuilder := octodiff.NewSignatureBuilder()
-
+	if opts.Progress {
+		signatureBuilder.ProgressReporter = octodiff.NewStdoutProgressReporter()
+	}
 	return signatureBuilder.Build(basisFile, basisFileInfo.Size(), signatureFile)
 }
