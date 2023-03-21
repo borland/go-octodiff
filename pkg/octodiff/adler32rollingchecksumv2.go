@@ -2,18 +2,21 @@ package octodiff
 
 type Adler32RollingChecksumV2 struct{}
 
-var Modulus = uint32(65521)
+func NewAdler32RollingChecksumV2() *Adler32RollingChecksumV2 {
+	return &Adler32RollingChecksumV2{}
+}
+
+const Modulus = uint32(65521)
 
 func (_ *Adler32RollingChecksumV2) Name() string {
 	return "Adler32V2"
 }
 
-func (_ *Adler32RollingChecksumV2) Calculate(block []byte, offset int, count int) uint32 {
+func (_ *Adler32RollingChecksumV2) Calculate(block []byte) uint32 {
 	a := uint32(1)
 	b := uint32(0)
 
-	for i := offset; i < offset+count; i++ {
-		z := block[i]
+	for _, z := range block {
 		a = (uint32(z) + a) % Modulus
 		b = (b + a) % Modulus
 	}

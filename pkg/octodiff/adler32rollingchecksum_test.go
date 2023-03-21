@@ -17,11 +17,11 @@ func TestAdler32RollingChecksum_Calculate(t *testing.T) {
 	c := &octodiff.Adler32RollingChecksum{}
 	block := test.TestData
 
-	assert.Equal(t, uint32(2755533412), c.Calculate(block, 0, 100))
-	assert.Equal(t, uint32(2888047271), c.Calculate(block, 1, 100))
-	assert.Equal(t, uint32(2476743237), c.Calculate(block, 2, 100))
-	assert.Equal(t, uint32(591925890), c.Calculate(block, 93, 100))
-	assert.Equal(t, uint32(4037189623), c.Calculate(block, 0, len(block)))
+	assert.Equal(t, uint32(2755533412), c.Calculate(block[:100]))
+	assert.Equal(t, uint32(2888047271), c.Calculate(block[1:101]))
+	assert.Equal(t, uint32(2476743237), c.Calculate(block[2:102]))
+	assert.Equal(t, uint32(591925890), c.Calculate(block[93:193]))
+	assert.Equal(t, uint32(4037189623), c.Calculate(block))
 }
 
 func TestAdler32RollingChecksum_Rotate(t *testing.T) {

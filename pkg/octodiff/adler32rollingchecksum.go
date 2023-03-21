@@ -4,16 +4,19 @@ package octodiff
 
 type Adler32RollingChecksum struct{}
 
+func NewAdler32RollingChecksum() *Adler32RollingChecksum {
+	return &Adler32RollingChecksum{}
+}
+
 func (_ *Adler32RollingChecksum) Name() string {
 	return "Adler32"
 }
 
-func (_ *Adler32RollingChecksum) Calculate(block []byte, offset int, count int) uint32 {
+func (_ *Adler32RollingChecksum) Calculate(block []byte) uint32 {
 	a := uint32(1)
 	b := uint32(0)
 
-	for i := offset; i < offset+count; i++ {
-		z := block[i]
+	for _, z := range block {
 		a = uint32(z) + a
 		b = b + a
 	}
