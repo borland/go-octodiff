@@ -1,0 +1,152 @@
+package octodiff
+
+import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"fmt"
+	"io"
+)
+
+type SignatureReader struct {
+	ProgressReporter ProgressReporter // must be non-null
+}
+
+func NewSignatureReader() *SignatureReader {
+	return &SignatureReader{
+		ProgressReporter: NopProgressReporter(),
+	}
+}
+
+func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Signature, error) {
+	pos := int64(0)
+	s.ProgressReporter.ReportProgress("Reading signature", pos, inputLength)
+
+	headerBytes := make([]byte, len(BinarySignatureHeader))
+	bytesRead, err := input.Read(headerBytes)
+	if err != nil {
+		return nil, err
+	}
+	if bytesRead != len(BinarySignatureHeader) || !bytes.Equal(headerBytes, BinarySignatureHeader) {
+		return nil, errors.New("the signature file appears to be corrupt")
+	}
+	pos += int64(bytesRead)
+
+	var versionBytes = make([]byte, len(BinaryVersion))
+	bytesRead, err = input.Read(versionBytes)
+	if err != nil {
+		return nil, err
+	}
+	if bytesRead != len(BinaryVersion) || !bytes.Equal(versionBytes, BinaryVersion) {
+		return nil, errors.New("the signature file uses a newer file format than this program can handle")
+	}
+	pos += int64(bytesRead)
+
+	hashAlgorithmStr, bytesRead, err := readLengthPrefixedString(input)
+	if err != nil {
+		return nil, err
+	}
+	pos += int64(bytesRead)
+
+	rollingChecksumAlgorithmStr, bytesRead, err := readLengthPrefixedString(input)
+	if err != nil {
+		return nil, err
+	}
+	pos += int64(bytesRead)
+
+	var endBytes = make([]byte, len(BinaryEndOfMetadata))
+	bytesRead, err = input.Read(endBytes)
+	if err != nil {
+		return nil, err
+	}
+	if bytesRead != len(endBytes) || !bytes.Equal(endBytes, BinaryEndOfMetadata) {
+		return nil, errors.New("the signature file appears to be corrupt")
+	}
+	pos += int64(bytesRead)
+
+	s.ProgressReporter.ReportProgress("Reading signature", pos, inputLength)
+
+	if hashAlgorithmStr != DefaultHashAlgorithm.Name() {
+		return nil, fmt.Errorf("signature uses unsupported hash algorithm %s", hashAlgorithmStr)
+	}
+	hashAlgorithm := DefaultHashAlgorithm
+
+	var rollingChecksum RollingChecksum
+	switch rollingChecksumAlgorithmStr {
+	case Adler32RollingChecksumName:
+		rollingChecksum = NewAdler32RollingChecksum()
+	case Adler32RollingChecksumV2Name:
+		rollingChecksum = NewAdler32RollingChecksumV2()
+	default:
+		return nil, fmt.Errorf("signature uses unsupported rolling checksum algorithm %s", rollingChecksumAlgorithmStr)
+	}
+
+	expectedHashLength := hashAlgorithm.HashLength()
+	remainingBytes := inputLength - pos
+	signatureSize := 2 + 4 + expectedHashLength
+
+	if remainingBytes%int64(signatureSize) != 0 {
+		return nil, errors.New("the signature file appears to be corrupt; at least one chunk has data missing")
+	}
+
+	expectedNumberOfChunks := remainingBytes / int64(signatureSize)
+
+	chunks := make([]*ChunkSignature, 0, expectedNumberOfChunks)
+
+	block := make([]byte, signatureSize)
+	blockBytesRead := 1 // placeholder for the first time around the loop
+
+	for blockBytesRead > 0 {
+		blockBytesRead, err = input.Read(block)
+		if err == io.EOF {
+			break // end of file, no error
+		}
+		if err != nil {
+			return nil, err
+		}
+		if blockBytesRead != signatureSize {
+			return nil, fmt.Errorf("expecting to read %d bytes for ChunkSignature but only got %d", signatureSize, blockBytesRead)
+		}
+		pos += int64(blockBytesRead)
+
+		// TODO I never get the endianness right; fix this once we have some tests in place
+		length := uint16(block[0]) | uint16(block[1])<<8
+
+		// TODO I never get the endianness right; fix this once we have some tests in place
+		checksum := uint32(block[2]) | uint32(block[3])<<8 | uint32(block[4])<<16 | uint32(block[5])<<24
+
+		chunks = append(chunks, &ChunkSignature{
+			Length:          length,
+			RollingChecksum: checksum,
+			Hash:            append([]byte(nil), block[6:]...), // copy the buffer as the next read around the loop is going to overwrite 'block'
+		})
+
+		s.ProgressReporter.ReportProgress("Reading signature", pos, inputLength)
+	}
+	return &Signature{
+		HashAlgorithm:            hashAlgorithm,
+		RollingChecksumAlgorithm: rollingChecksum,
+		Chunks:                   chunks,
+	}, nil
+}
+
+// returns the string, how many bytes we read in order to get it, and an error
+func readLengthPrefixedString(input io.Reader) (string, int, error) {
+	// C# BinaryWriter prefixes strings with their length using a single byte for small strings, or 4 bytes for larger
+	// We only handle small strings here
+	var contentLen uint8
+	err := binary.Read(input, binary.LittleEndian, &contentLen)
+	if err != nil {
+		return "", 0, err
+	}
+
+	var content = make([]byte, contentLen)
+	bytesRead, err := input.Read(content)
+	if err != nil {
+		return "", 1 + bytesRead, err
+	}
+	if bytesRead != int(contentLen) {
+		return "", 1 + bytesRead, fmt.Errorf("Binary format indicates string length to read of %d but only %d bytes were read", contentLen, bytesRead)
+	}
+	return string(content), 1 + bytesRead, nil
+}

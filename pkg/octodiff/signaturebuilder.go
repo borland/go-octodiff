@@ -14,9 +14,9 @@ const (
 
 type SignatureBuilder struct {
 	ChunkSize                int
-	HashAlgorithm            HashAlgorithm
-	RollingChecksumAlgorithm RollingChecksum
-	ProgressReporter         ProgressReporter
+	HashAlgorithm            HashAlgorithm    // must be non-null
+	RollingChecksumAlgorithm RollingChecksum  // must be non-null
+	ProgressReporter         ProgressReporter // must be non-null
 }
 
 func NewSignatureBuilder() *SignatureBuilder {
@@ -102,7 +102,7 @@ func (s *SignatureBuilder) writeChunkSignatures(input io.Reader, inputLength int
 			return err
 		}
 		subBlock := block[:bytesRead]
-		err = writeChunk(output, subBlock, hashAlgorithm.ComputeHash(subBlock), checksumAlgorithm.Calculate(subBlock))
+		err = writeChunk(output, subBlock, hashAlgorithm.HashFromData(subBlock), checksumAlgorithm.Calculate(subBlock))
 		if err != nil {
 			return err
 		}
@@ -128,6 +128,7 @@ func writeChunk(output io.Writer, block []byte, hash []byte, rollingChecksum uin
 
 func writeLengthPrefixedString(output io.Writer, str string) error {
 	// C# BinaryWriter prefixes strings with their length using a single byte for small strings, or 4 bytes for larger
+	// We only handle small strings here
 	strBytes := []byte(str)
 	_, err := output.Write([]byte{byte(len(strBytes))})
 	if err != nil {

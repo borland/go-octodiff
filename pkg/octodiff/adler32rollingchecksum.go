@@ -4,12 +4,14 @@ package octodiff
 
 type Adler32RollingChecksum struct{}
 
+const Adler32RollingChecksumName = "Adler32"
+
 func NewAdler32RollingChecksum() *Adler32RollingChecksum {
 	return &Adler32RollingChecksum{}
 }
 
 func (_ *Adler32RollingChecksum) Name() string {
-	return "Adler32"
+	return Adler32RollingChecksumName
 }
 
 func (_ *Adler32RollingChecksum) Calculate(block []byte) uint32 {
