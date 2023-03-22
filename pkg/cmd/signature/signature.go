@@ -1,10 +1,12 @@
 package signature
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"github.com/OctopusDeploy/go-octodiff/pkg/octodiff"
 	"github.com/spf13/cobra"
+	"io"
 	"os"
 )
 
@@ -88,5 +90,12 @@ func signatureRun(opts *SignatureOptions) error {
 	if opts.Progress {
 		signatureBuilder.ProgressReporter = octodiff.NewStdoutProgressReporter()
 	}
-	return signatureBuilder.Build(basisFile, basisFileInfo.Size(), signatureFile)
+
+	// For a 4.5 gb ISO file on my dev laptop (March 2023) C# octodiff takes 16 seconds to generate a signature.
+	//
+	// With a 4MB read buffer we take 8 seconds; with a default 4k buffer we take 9.5 seconds; without bufio we take 12 seconds
+	// bufio on the writer is even more important. The above 8-second signature generation takes 40 seconds without it, but unlike the reader, write buffer size doesn't affect things noticeably
+	var basisFileReader io.Reader = bufio.NewReaderSize(basisFile, 4*1024*1024)
+	var signatureFileWriter io.Writer = bufio.NewWriter(signatureFile)
+	return signatureBuilder.Build(basisFileReader, basisFileInfo.Size(), signatureFileWriter)
 }
