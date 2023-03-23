@@ -102,7 +102,7 @@ func (s *SignatureBuilder) writeChunkSignatures(input io.Reader, inputLength int
 			return err
 		}
 		subBlock := block[:bytesRead]
-		err = writeChunk(output, subBlock, hashAlgorithm.HashFromData(subBlock), checksumAlgorithm.Calculate(subBlock))
+		err = writeChunk(output, subBlock, hashAlgorithm.HashOverData(subBlock), checksumAlgorithm.Calculate(subBlock))
 		if err != nil {
 			return err
 		}
@@ -123,17 +123,5 @@ func writeChunk(output io.Writer, block []byte, hash []byte, rollingChecksum uin
 		return err
 	}
 	_, err = output.Write(hash)
-	return err
-}
-
-func writeLengthPrefixedString(output io.Writer, str string) error {
-	// C# BinaryWriter prefixes strings with their length using a single byte for small strings, or 4 bytes for larger
-	// We only handle small strings here
-	strBytes := []byte(str)
-	_, err := output.Write([]byte{byte(len(strBytes))})
-	if err != nil {
-		return err
-	}
-	_, err = output.Write(strBytes)
 	return err
 }

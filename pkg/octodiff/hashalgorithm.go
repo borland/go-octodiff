@@ -8,8 +8,8 @@ import (
 type HashAlgorithm interface {
 	Name() string
 	HashLength() int
-	HashFromData(data []byte) []byte
-	HashFromReader(reader io.Reader) ([]byte, error)
+	HashOverData(data []byte) []byte
+	HashOverReader(reader io.Reader) ([]byte, error)
 }
 
 // the only hash algorithm octodiff seems to use is sha1
@@ -26,14 +26,14 @@ func (s *Sha1HashAlgorithm) HashLength() int {
 	return sha1.Size
 }
 
-func (s *Sha1HashAlgorithm) HashFromData(data []byte) []byte {
+func (s *Sha1HashAlgorithm) HashOverData(data []byte) []byte {
 	h := sha1.Sum(data)
 	return h[:] // convert from fixed-length array to slice
 }
 
 // This will issue lots of 1k reads into the reader.
 // It's up to the caller to pass us a bufio if performance is of concern
-func (s *Sha1HashAlgorithm) HashFromReader(reader io.Reader) ([]byte, error) {
+func (s *Sha1HashAlgorithm) HashOverReader(reader io.Reader) ([]byte, error) {
 
 	sha := sha1.New()
 	block := make([]byte, 1024)

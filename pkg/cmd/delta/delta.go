@@ -69,6 +69,10 @@ func deltaRun(opts *DeltaOptions) error {
 		return err
 	}
 	defer func() { _ = signatureFile.Close() }()
+	signatureFileInfo, err := signatureFile.Stat()
+	if err != nil {
+		return err
+	}
 
 	newFile, err := os.Open(newFilePath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -78,6 +82,11 @@ func deltaRun(opts *DeltaOptions) error {
 		return err
 	}
 	defer func() { _ = newFile.Close() }()
+
+	newFileInfo, err := newFile.Stat()
+	if err != nil {
+		return err
+	}
 
 	if deltaFilePath == "" {
 		deltaFilePath = newFilePath + ".octodelta"
@@ -95,5 +104,5 @@ func deltaRun(opts *DeltaOptions) error {
 	if opts.Progress {
 		delta.ProgressReporter = octodiff.NewStdoutProgressReporter()
 	}
-	return delta.Build(newFile, signatureFile, deltaFile)
+	return delta.Build(newFile, newFileInfo.Size(), signatureFile, signatureFileInfo.Size(), deltaFile)
 }

@@ -2,7 +2,6 @@ package octodiff
 
 import (
 	"bytes"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -96,6 +95,7 @@ func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Si
 	block := make([]byte, signatureSize)
 	blockBytesRead := 1 // placeholder for the first time around the loop
 
+	chunkStart := int64(0)
 	for blockBytesRead > 0 {
 		blockBytesRead, err = input.Read(block)
 		if err == io.EOF {
@@ -109,17 +109,18 @@ func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Si
 		}
 		pos += int64(blockBytesRead)
 
-		// TODO I never get the endianness right; fix this once we have some tests in place
 		length := uint16(block[0]) | uint16(block[1])<<8
 
-		// TODO I never get the endianness right; fix this once we have some tests in place
 		checksum := uint32(block[2]) | uint32(block[3])<<8 | uint32(block[4])<<16 | uint32(block[5])<<24
 
 		chunks = append(chunks, &ChunkSignature{
+			StartOffset:     chunkStart,
 			Length:          length,
 			RollingChecksum: checksum,
 			Hash:            append([]byte(nil), block[6:]...), // copy the buffer as the next read around the loop is going to overwrite 'block'
 		})
+
+		chunkStart += int64(length)
 
 		s.ProgressReporter.ReportProgress("Reading signature", pos, inputLength)
 	}
@@ -128,25 +129,4 @@ func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Si
 		RollingChecksumAlgorithm: rollingChecksum,
 		Chunks:                   chunks,
 	}, nil
-}
-
-// returns the string, how many bytes we read in order to get it, and an error
-func readLengthPrefixedString(input io.Reader) (string, int, error) {
-	// C# BinaryWriter prefixes strings with their length using a single byte for small strings, or 4 bytes for larger
-	// We only handle small strings here
-	var contentLen uint8
-	err := binary.Read(input, binary.LittleEndian, &contentLen)
-	if err != nil {
-		return "", 0, err
-	}
-
-	var content = make([]byte, contentLen)
-	bytesRead, err := input.Read(content)
-	if err != nil {
-		return "", 1 + bytesRead, err
-	}
-	if bytesRead != int(contentLen) {
-		return "", 1 + bytesRead, fmt.Errorf("Binary format indicates string length to read of %d but only %d bytes were read", contentLen, bytesRead)
-	}
-	return string(content), 1 + bytesRead, nil
 }
