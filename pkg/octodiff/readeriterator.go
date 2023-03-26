@@ -7,6 +7,7 @@ import "io"
 // this struct wraps it up into a "Next/Current" iterator style object as used by bufio.Scanner, or IEnumerator in C#
 // Important: Like bufio.Scanner, if Next() returns false you MUST check Err() to see if it failed
 // Important: Calling Next() mutates the io.Reader so you can't create more than one ReaderIterator per reader
+// Note: This is designed to be stack-allocated by the caller, so the New functions don't return pointers
 type ReaderIterator struct {
 	reader      io.Reader
 	buffer      []byte
@@ -35,7 +36,11 @@ func (b *ReaderIterator) Next() bool {
 		}
 	}
 	// even if an error was returned (whether EOF or not), the reader can still provide data
-	b.Current = b.buffer[:bytesRead]
+	if bytesRead == len(b.buffer) { // don't slice the buffer if we read the whole thing
+		b.Current = b.buffer
+	} else {
+		b.Current = b.buffer[:bytesRead]
+	}
 	// if we hit the last block AND there's no data to return, tell the caller we're done
 	return bytesRead > 0 || !b.isCompleted
 }
