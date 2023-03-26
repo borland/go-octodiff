@@ -49,7 +49,6 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 
 	chunkMap, minChunkSize, maxChunkSize := d.createChunkMap(chunks)
 
-	buffer := make([]byte, readBufferSize)
 	lastMatchPosition := int64(0)
 
 	d.ProgressReporter.ReportProgress("Building delta", int64(0), newFileLength)
@@ -58,14 +57,11 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 	if err != nil {
 		return err
 	}
-	for {
-		bytesRead, err := newFile.Read(buffer)
-		if err == io.EOF {
-			break // end of file, no error
-		}
-		if err != nil {
-			return err
-		}
+
+	iter := NewReaderIteratorSize(newFile, readBufferSize)
+	for iter.Next() {
+		buffer := iter.Current
+		bytesRead := len(buffer)
 
 		checksumAlgorithm := signature.RollingChecksumAlgorithm
 		checksum := uint32(0)
@@ -134,6 +130,9 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 		if err != nil {
 			return err
 		}
+	}
+	if err := iter.Err(); err != nil {
+		return err
 	}
 
 	if newFileLength != lastMatchPosition {

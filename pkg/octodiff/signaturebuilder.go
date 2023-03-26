@@ -89,28 +89,17 @@ func (s *SignatureBuilder) writeChunkSignatures(input io.Reader, inputLength int
 	s.ProgressReporter.ReportProgress("Building signatures", 0, inputLength)
 
 	start := int64(0)
-	block := make([]byte, s.ChunkSize)
-
-	bytesRead := 1 // placeholder for the first time around the loop
-	var err error
-	for bytesRead > 0 {
-		bytesRead, err = input.Read(block)
-		if err == io.EOF {
-			return nil // end of file, no error
-		}
-		if err != nil {
-			return err
-		}
-		subBlock := block[:bytesRead]
-		err = writeChunk(output, subBlock, hashAlgorithm.HashOverData(subBlock), checksumAlgorithm.Calculate(subBlock))
+	iter := NewReaderIteratorSize(input, s.ChunkSize)
+	for iter.Next() {
+		err := writeChunk(output, iter.Current, hashAlgorithm.HashOverData(iter.Current), checksumAlgorithm.Calculate(iter.Current))
 		if err != nil {
 			return err
 		}
 
-		start += int64(bytesRead)
+		start += int64(len(iter.Current))
 		s.ProgressReporter.ReportProgress("Building signatures", start, inputLength)
 	}
-	return nil
+	return iter.Err()
 }
 
 func writeChunk(output io.Writer, block []byte, hash []byte, rollingChecksum uint32) error {

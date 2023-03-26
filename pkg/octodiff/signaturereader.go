@@ -92,18 +92,11 @@ func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Si
 
 	chunks := make([]*ChunkSignature, 0, expectedNumberOfChunks)
 
-	block := make([]byte, signatureSize)
-	blockBytesRead := 1 // placeholder for the first time around the loop
-
 	chunkStart := int64(0)
-	for blockBytesRead > 0 {
-		blockBytesRead, err = input.Read(block)
-		if err == io.EOF {
-			break // end of file, no error
-		}
-		if err != nil {
-			return nil, err
-		}
+	iter := NewReaderIteratorSize(input, signatureSize)
+	for iter.Next() {
+		block := iter.Current
+		blockBytesRead := len(iter.Current)
 		if blockBytesRead != signatureSize {
 			return nil, fmt.Errorf("expecting to read %d bytes for ChunkSignature but only got %d", signatureSize, blockBytesRead)
 		}
@@ -124,6 +117,10 @@ func (s *SignatureReader) ReadSignature(input io.Reader, inputLength int64) (*Si
 
 		s.ProgressReporter.ReportProgress("Reading signature", pos, inputLength)
 	}
+	if err = iter.Err(); err != nil {
+		return nil, err
+	}
+
 	return &Signature{
 		HashAlgorithm:            hashAlgorithm,
 		RollingChecksumAlgorithm: rollingChecksum,

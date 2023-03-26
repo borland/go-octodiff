@@ -34,28 +34,18 @@ func (s *Sha1HashAlgorithm) HashOverData(data []byte) []byte {
 // This will issue lots of 1k reads into the reader.
 // It's up to the caller to pass us a bufio if performance is of concern
 func (s *Sha1HashAlgorithm) HashOverReader(reader io.Reader) ([]byte, error) {
-
 	sha := sha1.New()
-	block := make([]byte, 1024)
 
-	bytesRead := 1
-	var err error
-
-	for bytesRead > 0 {
-		bytesRead, err = reader.Read(block)
-		if err == io.EOF {
-			// possible last block. In practice this shouldn't happen as the last read should return success with 0 bytes instead, but good to be defensive
-			return sha.Sum(block[:bytesRead]), nil
-		}
-		if err != nil {
-			return nil, err
-		}
-		_, err = sha.Write(block[:bytesRead])
+	iter := NewReaderIteratorSize(reader, 1024)
+	for iter.Next() {
+		_, err := sha.Write(iter.Current)
 		if err != nil {
 			return nil, err
 		}
 	}
-
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
 	return sha.Sum(nil), nil
 }
 
