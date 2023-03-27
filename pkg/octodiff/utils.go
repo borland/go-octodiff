@@ -6,6 +6,9 @@ import (
 	"io"
 )
 
+// There are a number of places where we allocate buffers to read files, which use this value
+const defaultReadBufferSize = 4 * 1024 * 1024
+
 // returns the string, how many bytes we read in order to get it, and an error
 func readLengthPrefixedString(input io.Reader) (string, int, error) {
 	// C# BinaryWriter prefixes strings with their length using a single byte for small strings, or 4 bytes for larger

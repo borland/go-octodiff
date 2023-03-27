@@ -109,6 +109,11 @@ func deltaRun(opts *DeltaOptions) error {
 
 	// not using bufIo over newFile because we seek all over the place internally and bufio.Reader is not a ReadSeeker
 	var signatureFileReader io.Reader = bufio.NewReaderSize(signatureFile, 4*1024*1024)
-	var deltaFileWriter io.Writer = bufio.NewWriter(deltaFile)
-	return delta.Build(newFile, newFileInfo.Size(), signatureFileReader, signatureFileInfo.Size(), octodiff.NewBinaryDeltaWriter(deltaFileWriter))
+	var deltaFileWriter = bufio.NewWriter(deltaFile)
+	err = delta.Build(newFile, newFileInfo.Size(), signatureFileReader, signatureFileInfo.Size(), octodiff.NewBinaryDeltaWriter(deltaFileWriter))
+	if err != nil {
+		return err
+	}
+
+	return deltaFileWriter.Flush()
 }

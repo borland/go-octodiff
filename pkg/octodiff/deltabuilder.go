@@ -17,8 +17,6 @@ func NewDeltaBuilder() *DeltaBuilder {
 	}
 }
 
-const readBufferSize = 4 * 1024 * 1024
-
 // Build creates a new delta file, writing it out using `deltaWriter`
 // confusing naming: "newFile" isn't a new file that we are creating, but rather an existing file which is
 // "new" in that we haven't created a delta for it yet.
@@ -58,7 +56,7 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 	chunkMap, minChunkSize, maxChunkSize := d.createChunkMap(chunks)
 
 	lastMatchPosition := int64(0)
-	buffer := make([]byte, readBufferSize)
+	buffer := make([]byte, defaultReadBufferSize)
 	d.ProgressReporter.ReportProgress("Building delta", int64(0), newFileLength)
 
 	startPosition := int64(0)
