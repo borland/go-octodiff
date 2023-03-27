@@ -12,10 +12,10 @@ type ReaderIterator struct {
 	// critical fields, must allocate with NewReaderIterator
 	reader       io.Reader
 	buffer       []byte
-	nBytesToRead int
+	nBytesToRead int64
 
 	// progress fields, zero-init is good
-	nBytesReadSoFar int
+	nBytesReadSoFar int64
 	isCompleted     bool
 	err             error
 
@@ -37,13 +37,13 @@ func (b *ReaderIterator) Next() bool {
 
 	if b.nBytesToRead > 0 { // if we've been told to stop after a certain number of bytes, control this by varying the buffer passed to Read
 		bytesRemaining := b.nBytesToRead - b.nBytesReadSoFar
-		if bytesRemaining < len(b.buffer) {
+		if bytesRemaining < int64(len(b.buffer)) {
 			localReadBuffer = b.buffer[:bytesRemaining]
 		}
 	}
 
 	bytesRead, err := b.reader.Read(localReadBuffer)
-	b.nBytesReadSoFar += bytesRead
+	b.nBytesReadSoFar += int64(bytesRead)
 
 	if b.nBytesToRead > 0 { // if we've been told to stop after a certain number of bytes, control this by simulating an EOF
 		if b.nBytesReadSoFar >= b.nBytesToRead && err == nil { // don't squash an underlying error though
@@ -74,7 +74,7 @@ func NewReaderIteratorSize(reader io.Reader, bufferSize int) ReaderIterator {
 }
 
 // NewReaderIteratorSize creates an iterator, allocating a buffer of `bufferSize`
-func NewReaderIteratorSizeNBytes(reader io.Reader, bufferSize int, nBytesToRead int) ReaderIterator {
+func NewReaderIteratorSizeNBytes(reader io.Reader, bufferSize int, nBytesToRead int64) ReaderIterator {
 	return NewReaderIteratorBufferNBytes(reader, make([]byte, bufferSize), nBytesToRead)
 }
 
@@ -84,7 +84,7 @@ func NewReaderIteratorBuffer(reader io.Reader, buffer []byte) ReaderIterator {
 }
 
 // NewReaderIteratorBufferNBytes creates an iterator that will stop after reading `nBytesToRead` bytes, referencing an already-allocated buffer
-func NewReaderIteratorBufferNBytes(reader io.Reader, buffer []byte, nBytesToRead int) ReaderIterator {
+func NewReaderIteratorBufferNBytes(reader io.Reader, buffer []byte, nBytesToRead int64) ReaderIterator {
 	return ReaderIterator{
 		reader:       reader,
 		buffer:       buffer,

@@ -17,7 +17,7 @@ func newMockReader(Callbacks ...func(p []byte) (n int, err error)) *mockReader {
 
 func (m *mockReader) Read(p []byte) (n int, err error) {
 	if len(m.Callbacks) == 0 {
-		return 0, errors.New("Read past end of providers")
+		return 0, errors.New("test error: read past end of providers")
 	}
 	callback := m.Callbacks[0]
 	m.Callbacks = m.Callbacks[1:]

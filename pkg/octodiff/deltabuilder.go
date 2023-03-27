@@ -2,7 +2,6 @@ package octodiff
 
 import (
 	"bytes"
-	"encoding/binary"
 	"io"
 	"math"
 	"sort"
@@ -20,9 +19,10 @@ func NewDeltaBuilder() *DeltaBuilder {
 
 const readBufferSize = 4 * 1024 * 1024
 
+// Build creates a new delta file, writing it out using `deltaWriter`
 // confusing naming: "newFile" isn't a new file that we are creating, but rather an existing file which is
 // "new" in that we haven't created a delta for it yet.
-func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatureFile io.Reader, signatureFileLength int64, output io.Writer) error {
+func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatureFile io.Reader, signatureFileLength int64, deltaWriter DeltaWriter) error {
 	signatureReader := NewSignatureReader()
 	signatureReader.ProgressReporter = d.ProgressReporter
 
@@ -36,19 +36,23 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 	if err != nil {
 		return err
 	}
-	_, err = newFile.Seek(0, io.SeekStart) // HashOverReader reads the entire newFile so we need to seek back to the start to process it
+	_, err = newFile.Seek(0, io.SeekStart) // HashOverReader reads the entire newFile; we need to seek back to the start to process it
 	if err != nil {
 		return err
 	}
 
-	err = writeMetadata(output, signature.HashAlgorithm, hash)
+	err = deltaWriter.WriteMetadata(signature.HashAlgorithm, hash)
 	if err != nil {
 		return err
 	}
 
-	sort.SliceStable(chunks, func(i, j int) bool {
-		// C# ChunkSignatureChecksumComparer has secondary comparison based on chunk StartOffset but we don't need that as we are using a stable sort
-		return chunks[i].RollingChecksum > chunks[j].RollingChecksum
+	sort.Slice(chunks, func(i, j int) bool {
+		// aligns with C# ChunkSignatureChecksumComparer
+		x, y := chunks[i], chunks[j]
+		if x.RollingChecksum == y.RollingChecksum {
+			return x.StartOffset < y.StartOffset
+		}
+		return x.RollingChecksum < y.RollingChecksum
 	})
 
 	chunkMap, minChunkSize, maxChunkSize := d.createChunkMap(chunks)
@@ -106,13 +110,13 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 
 						missing := readSoFar - lastMatchPosition
 						if missing > int64(remainingPossibleChunkSize) {
-							err = writeDataCommand(output, newFile, lastMatchPosition, missing-int64(remainingPossibleChunkSize))
+							err = deltaWriter.WriteDataCommand(newFile, lastMatchPosition, missing-int64(remainingPossibleChunkSize))
 							if err != nil {
 								return err
 							}
 						}
 
-						err = writeCopyCommand(output, chunk.StartOffset, int64(chunk.Length))
+						err = deltaWriter.WriteCopyCommand(chunk.StartOffset, int64(chunk.Length))
 						if err != nil {
 							return err
 						}
@@ -136,8 +140,8 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 			break
 		}
 
-		// seek backwards by maxChunkSize+1 so we can read that stuff, and continue sliding the window over the file
-		// note we mutate startPosition so it is ready for the next time round the loop
+		// seek backwards by maxChunkSize+1, so we can read that stuff, and continue sliding the window over the file
+		// note we mutate startPosition, so it is ready for the next time round the loop
 		startPosition, err = newFile.Seek(-int64(maxChunkSize)+1, io.SeekCurrent)
 		if err != nil {
 			return err
@@ -146,7 +150,7 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 
 	// we've reached the end of the file. Write any trailing data as a 'Data' command
 	if newFileLength != lastMatchPosition {
-		err = writeDataCommand(output, newFile, lastMatchPosition, newFileLength-lastMatchPosition)
+		err = deltaWriter.WriteDataCommand(newFile, lastMatchPosition, newFileLength-lastMatchPosition)
 		if err != nil {
 			return err
 		}
@@ -178,114 +182,4 @@ func (d *DeltaBuilder) createChunkMap(chunks []*ChunkSignature) (map[uint32]int,
 		d.ProgressReporter.ReportProgress("Creating chunk map", int64(chunkIdx), int64(len(chunks)))
 	}
 	return chunkMap, int(minChunkSize), int(maxChunkSize)
-}
-
-func writeMetadata(output io.Writer, hashAlgorithm HashAlgorithm, expectedNewFileHash []byte) error {
-	_, err := output.Write(BinaryDeltaHeader)
-	if err != nil {
-		return err
-	}
-	_, err = output.Write(BinaryVersion)
-	if err != nil {
-		return err
-	}
-	err = writeLengthPrefixedString(output, hashAlgorithm.Name())
-	if err != nil {
-		return err
-	}
-	err = binary.Write(output, binary.LittleEndian, int32(len(expectedNewFileHash)))
-	if err != nil {
-		return err
-	}
-	_, err = output.Write(expectedNewFileHash)
-	if err != nil {
-		return err
-	}
-	_, err = output.Write(BinaryEndOfMetadata)
-	return err
-}
-
-// writes the "Copy Command" header to `output`
-// followed by offset and length; There's no data
-func writeCopyCommand(output io.Writer, offset int64, length int64) error {
-	_, err := output.Write(BinaryCopyCommand)
-	if err != nil {
-		return err
-	}
-	err = binary.Write(output, binary.LittleEndian, offset)
-	if err != nil {
-		return err
-	}
-	return binary.Write(output, binary.LittleEndian, length)
-}
-
-// writes the "Data Command" header to `output`
-// then proceeds to read `length` bytes from `source`, seeking to `offset` and write those to `output`
-func writeDataCommand(output io.Writer, source io.ReadSeeker, offset int64, length int64) (err error) {
-	_, err = output.Write(BinaryDataCommand)
-	if err != nil {
-		return
-	}
-	err = binary.Write(output, binary.LittleEndian, length)
-	if err != nil {
-		return
-	}
-
-	var originalPosition int64
-	originalPosition, err = source.Seek(0, io.SeekCurrent) // doing a no-op seek is how you find out the current position of a Go reader
-	if err != nil {
-		return
-	}
-	// we need to ensure we seek back to originalPosition before exiting the function.
-	defer func() {
-		_, seekBackErr := source.Seek(originalPosition, io.SeekStart)
-		if seekBackErr != nil {
-			err = seekBackErr // this causes writeDataCommand to return this error
-		}
-	}()
-
-	_, err = source.Seek(0, io.SeekStart)
-	if err != nil {
-		return
-	}
-
-	bufSize := 1024 * 1024
-	if int(length) < bufSize {
-		bufSize = int(length)
-	}
-
-	buffer := make([]byte, bufSize)
-	soFar := int64(0)
-
-	readNextBytes := func() (int, []byte, error) {
-		subBufSize := bufSize
-		if (length - soFar) < int64(subBufSize) {
-			subBufSize = int(length - soFar)
-		}
-		subBuffer := buffer[:subBufSize]
-		bytesRead, err := source.Read(subBuffer)
-
-		if bytesRead != len(subBuffer) {
-			return bytesRead, subBuffer[:bytesRead], nil
-		}
-
-		return bytesRead, subBuffer, err
-	}
-
-	bytesRead := 1 // placeholder to start loop
-	for bytesRead > 0 {
-		var subBuffer []byte
-		bytesRead, subBuffer, err = readNextBytes()
-		if err != nil {
-			return
-		}
-		soFar += int64(bytesRead)
-
-		_, err = output.Write(subBuffer)
-		if err != nil {
-			return
-		}
-	}
-
-	return
 }
