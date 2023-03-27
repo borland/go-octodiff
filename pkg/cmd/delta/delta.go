@@ -1,9 +1,11 @@
 package delta
 
 import (
+	"bufio"
 	"errors"
 	"github.com/OctopusDeploy/go-octodiff/pkg/octodiff"
 	"github.com/spf13/cobra"
+	"io"
 	"os"
 )
 
@@ -104,5 +106,9 @@ func deltaRun(opts *DeltaOptions) error {
 	if opts.Progress {
 		delta.ProgressReporter = octodiff.NewStdoutProgressReporter()
 	}
-	return delta.Build(newFile, newFileInfo.Size(), signatureFile, signatureFileInfo.Size(), octodiff.NewBinaryDeltaWriter(deltaFile))
+
+	// not using bufIo over newFile because we seek all over the place internally and bufio.Reader is not a ReadSeeker
+	var signatureFileReader io.Reader = bufio.NewReaderSize(signatureFile, 4*1024*1024)
+	var deltaFileWriter io.Writer = bufio.NewWriter(deltaFile)
+	return delta.Build(newFile, newFileInfo.Size(), signatureFileReader, signatureFileInfo.Size(), octodiff.NewBinaryDeltaWriter(deltaFileWriter))
 }
