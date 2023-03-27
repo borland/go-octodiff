@@ -104,5 +104,5 @@ func deltaRun(opts *DeltaOptions) error {
 	if opts.Progress {
 		delta.ProgressReporter = octodiff.NewStdoutProgressReporter()
 	}
-	return delta.Build(newFile, newFileInfo.Size(), signatureFile, signatureFileInfo.Size(), deltaFile)
+	return delta.Build(newFile, newFileInfo.Size(), signatureFile, signatureFileInfo.Size(), octodiff.NewBinaryDeltaWriter(deltaFile))
 }
