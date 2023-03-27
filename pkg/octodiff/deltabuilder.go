@@ -36,6 +36,10 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 	if err != nil {
 		return err
 	}
+	_, err = newFile.Seek(0, io.SeekStart) // HashOverReader reads the entire newFile so we need to seek back to the start to process it
+	if err != nil {
+		return err
+	}
 
 	err = writeMetadata(output, signature.HashAlgorithm, hash)
 	if err != nil {
@@ -50,91 +54,97 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 	chunkMap, minChunkSize, maxChunkSize := d.createChunkMap(chunks)
 
 	lastMatchPosition := int64(0)
-
+	buffer := make([]byte, readBufferSize)
 	d.ProgressReporter.ReportProgress("Building delta", int64(0), newFileLength)
 
-	startPosition, err := newFile.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return err
-	}
+	startPosition := int64(0)
 
-	iter := NewReaderIteratorSize(newFile, readBufferSize)
-	for iter.Next() {
-		buffer := iter.Current
-		bytesRead := len(buffer)
+	for {
+		bytesRead, fileReadErr := newFile.Read(buffer)
+		if bytesRead > 0 { // we got some bytes, process them
+			checksumAlgorithm := signature.RollingChecksumAlgorithm
+			checksum := uint32(0)
 
-		checksumAlgorithm := signature.RollingChecksumAlgorithm
-		checksum := uint32(0)
+			remainingPossibleChunkSize := maxChunkSize
 
-		remainingPossibleChunkSize := maxChunkSize
+			// slide a window over the buffer, looking for anything that matches our known list of chunks
+			for i := 0; i < (bytesRead - minChunkSize + 1); i++ {
+				readSoFar := startPosition + int64(i)
 
-		for i := 0; i < (bytesRead - minChunkSize + 1); i++ {
-			readSoFar := startPosition + int64(i)
+				remainingBytes := bytesRead - i
+				if remainingBytes < maxChunkSize {
+					remainingPossibleChunkSize = minChunkSize
+				}
 
-			remainingBytes := bytesRead - i
-			if remainingBytes < maxChunkSize {
-				remainingPossibleChunkSize = minChunkSize
-			}
+				if i == 0 || remainingBytes < maxChunkSize { // we are either at the start or end of buffer; calculate a full checksum
+					checksum = checksumAlgorithm.Calculate(buffer[i : i+remainingPossibleChunkSize])
+				} else { // we are stepping through the buffer, just rotate the existing checksum
+					remove := buffer[i-1]
+					add := buffer[i+remainingPossibleChunkSize-1]
+					checksum = checksumAlgorithm.Rotate(checksum, remove, add, remainingPossibleChunkSize)
+				}
 
-			if i == 0 || remainingBytes < maxChunkSize {
-				checksum = checksumAlgorithm.Calculate(buffer[i : i+remainingPossibleChunkSize])
-			} else {
-				remove := buffer[i-1]
-				add := buffer[i+remainingPossibleChunkSize-1]
-				checksum = checksumAlgorithm.Rotate(checksum, remove, add, remainingPossibleChunkSize)
-			}
+				d.ProgressReporter.ReportProgress("Building delta", readSoFar, newFileLength)
 
-			d.ProgressReporter.ReportProgress("Building delta", readSoFar, newFileLength)
+				if readSoFar-(lastMatchPosition-int64(remainingPossibleChunkSize)) < int64(remainingPossibleChunkSize) {
+					continue
+				}
 
-			if readSoFar-(lastMatchPosition-int64(remainingPossibleChunkSize)) < int64(remainingPossibleChunkSize) {
-				continue
-			}
+				startIndex, ok := chunkMap[checksum]
+				if !ok {
+					continue // we didn't match any known chunks. Skip, and the skipped data will be picked up later in a Data command based on lastMatchPosition
+				}
 
-			startIndex, ok := chunkMap[checksum]
-			if !ok {
-				continue
-			}
+				for j := startIndex; j < len(chunks) && chunks[j].RollingChecksum == checksum; j++ {
+					chunk := chunks[j]
 
-			for j := startIndex; j < len(chunks) && chunks[j].RollingChecksum == checksum; j++ {
-				chunk := chunks[j]
+					sha := signature.HashAlgorithm.HashOverData(buffer[i : i+remainingPossibleChunkSize])
 
-				sha := signature.HashAlgorithm.HashOverData(buffer[i : i+remainingPossibleChunkSize])
-				if bytes.Equal(sha, chunk.Hash) {
-					readSoFar = readSoFar + int64(remainingPossibleChunkSize)
+					if bytes.Equal(sha, chunk.Hash) {
+						// we matched a chunk. Write any data in between it and the previous match as data, then write the 'copy' command for a chunk
+						readSoFar = readSoFar + int64(remainingPossibleChunkSize)
 
-					missing := readSoFar - lastMatchPosition
-					if missing > int64(remainingPossibleChunkSize) {
-						err = writeDataCommand(output, newFile, lastMatchPosition, missing-int64(remainingPossibleChunkSize))
+						missing := readSoFar - lastMatchPosition
+						if missing > int64(remainingPossibleChunkSize) {
+							err = writeDataCommand(output, newFile, lastMatchPosition, missing-int64(remainingPossibleChunkSize))
+							if err != nil {
+								return err
+							}
+						}
+
+						err = writeCopyCommand(output, chunk.StartOffset, int64(chunk.Length))
 						if err != nil {
 							return err
 						}
+						lastMatchPosition = readSoFar
+						break
 					}
-
-					err = writeCopyCommand(output, chunk.StartOffset, int64(chunk.Length))
-					if err != nil {
-						return err
-					}
-					//deltaWriter.WriteCopyCommand(new DataRange(chunk.StartOffset, chunk.Length));
-					lastMatchPosition = readSoFar
-					break
 				}
 			}
 		}
-
+		if fileReadErr != nil {
+			if fileReadErr == io.EOF { // all done
+				break
+			}
+			return fileReadErr // something else went wrong after processing bytes, fail!
+		}
+		// If we didn't read a full buffer size, then assume we reached the end of newFile and exit the loop.
+		// Note that Go's reader interface doesn't promise that it will always give you N bytes, even if N
+		// bytes are available, in practice for file readers it does, and because we jump around seeking within
+		// newFile there's not a great way of otherwise determining EOF without rewriting this whole thing
 		if bytesRead < len(buffer) {
 			break
 		}
 
-		// why are we seeking backwards? Need to debug the C# code and figure out what's going on here
+		// seek backwards by maxChunkSize+1 so we can read that stuff, and continue sliding the window over the file
+		// note we mutate startPosition so it is ready for the next time round the loop
 		startPosition, err = newFile.Seek(-int64(maxChunkSize)+1, io.SeekCurrent)
 		if err != nil {
 			return err
 		}
 	}
-	if err := iter.Err(); err != nil {
-		return err
-	}
 
+	// we've reached the end of the file. Write any trailing data as a 'Data' command
 	if newFileLength != lastMatchPosition {
 		err = writeDataCommand(output, newFile, lastMatchPosition, newFileLength-lastMatchPosition)
 		if err != nil {
@@ -183,7 +193,7 @@ func writeMetadata(output io.Writer, hashAlgorithm HashAlgorithm, expectedNewFil
 	if err != nil {
 		return err
 	}
-	err = binary.Write(output, binary.LittleEndian, len(expectedNewFileHash))
+	err = binary.Write(output, binary.LittleEndian, int32(len(expectedNewFileHash)))
 	if err != nil {
 		return err
 	}
@@ -222,7 +232,7 @@ func writeDataCommand(output io.Writer, source io.ReadSeeker, offset int64, leng
 	}
 
 	var originalPosition int64
-	originalPosition, err = source.Seek(offset, io.SeekCurrent)
+	originalPosition, err = source.Seek(0, io.SeekCurrent) // doing a no-op seek is how you find out the current position of a Go reader
 	if err != nil {
 		return
 	}

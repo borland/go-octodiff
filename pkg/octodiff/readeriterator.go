@@ -9,11 +9,17 @@ import "io"
 // Important: Calling Next() mutates the io.Reader so you can't create more than one ReaderIterator per reader
 // Note: This is designed to be stack-allocated by the caller, so the New functions don't return pointers
 type ReaderIterator struct {
-	reader      io.Reader
-	buffer      []byte
-	isCompleted bool
-	err         error
+	// critical fields, must allocate with NewReaderIterator
+	reader       io.Reader
+	buffer       []byte
+	nBytesToRead int
 
+	// progress fields, zero-init is good
+	nBytesReadSoFar int
+	isCompleted     bool
+	err             error
+
+	// Output; zero-init is good
 	Current []byte
 }
 
@@ -27,7 +33,24 @@ func (b *ReaderIterator) Next() bool {
 		return false // already completed
 	}
 
-	bytesRead, err := b.reader.Read(b.buffer)
+	localReadBuffer := b.buffer
+
+	if b.nBytesToRead > 0 { // if we've been told to stop after a certain number of bytes, control this by varying the buffer passed to Read
+		bytesRemaining := b.nBytesToRead - b.nBytesReadSoFar
+		if bytesRemaining < len(b.buffer) {
+			localReadBuffer = b.buffer[:bytesRemaining]
+		}
+	}
+
+	bytesRead, err := b.reader.Read(localReadBuffer)
+	b.nBytesReadSoFar += bytesRead
+
+	if b.nBytesToRead > 0 { // if we've been told to stop after a certain number of bytes, control this by simulating an EOF
+		if b.nBytesReadSoFar >= b.nBytesToRead && err == nil { // don't squash an underlying error though
+			err = io.EOF
+		}
+	}
+
 	if err != nil {
 		// last block. May or may not have data depending on underlying reader
 		b.isCompleted = true
@@ -36,18 +59,13 @@ func (b *ReaderIterator) Next() bool {
 		}
 	}
 	// even if an error was returned (whether EOF or not), the reader can still provide data
-	if bytesRead == len(b.buffer) { // don't slice the buffer if we read the whole thing
-		b.Current = b.buffer
+	if bytesRead == len(localReadBuffer) { // don't slice the buffer if we read the whole thing
+		b.Current = localReadBuffer
 	} else {
-		b.Current = b.buffer[:bytesRead]
+		b.Current = localReadBuffer[:bytesRead]
 	}
 	// if we hit the last block AND there's no data to return, tell the caller we're done
 	return bytesRead > 0 || !b.isCompleted
-}
-
-// NewReaderIterator creates an iterator, allocating a buffer of a default size
-func NewReaderIterator(reader io.Reader) ReaderIterator {
-	return NewReaderIteratorSize(reader, 1024*1024)
 }
 
 // NewReaderIteratorSize creates an iterator, allocating a buffer of `bufferSize`
@@ -55,13 +73,24 @@ func NewReaderIteratorSize(reader io.Reader, bufferSize int) ReaderIterator {
 	return NewReaderIteratorBuffer(reader, make([]byte, bufferSize))
 }
 
-// NewReaderIteratorBuffer creates an iterator, referencing an already-allocated buffer
+// NewReaderIteratorSize creates an iterator, allocating a buffer of `bufferSize`
+func NewReaderIteratorSizeNBytes(reader io.Reader, bufferSize int, nBytesToRead int) ReaderIterator {
+	return NewReaderIteratorBufferNBytes(reader, make([]byte, bufferSize), nBytesToRead)
+}
+
+// NewReaderIteratorBuffer creates an iterator, referencing an already-allocated buffer that will read until EOF
 func NewReaderIteratorBuffer(reader io.Reader, buffer []byte) ReaderIterator {
+	return NewReaderIteratorBufferNBytes(reader, buffer, -1)
+}
+
+// NewReaderIteratorBufferNBytes creates an iterator that will stop after reading `nBytesToRead` bytes, referencing an already-allocated buffer
+func NewReaderIteratorBufferNBytes(reader io.Reader, buffer []byte, nBytesToRead int) ReaderIterator {
 	return ReaderIterator{
-		reader:      reader,
-		buffer:      buffer,
-		isCompleted: false,
-		err:         nil,
-		Current:     nil,
+		reader:       reader,
+		buffer:       buffer,
+		nBytesToRead: nBytesToRead,
+		isCompleted:  false,
+		err:          nil,
+		Current:      nil,
 	}
 }

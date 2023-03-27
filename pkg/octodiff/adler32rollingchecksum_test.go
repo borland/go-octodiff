@@ -15,7 +15,7 @@ func TestAdler32RollingChecksum_Name(t *testing.T) {
 
 func TestAdler32RollingChecksum_Calculate(t *testing.T) {
 	c := &octodiff.Adler32RollingChecksum{}
-	block := test.TestData
+	block := test.TestData()
 
 	assert.Equal(t, uint32(2755533412), c.Calculate(block[:100]))
 	assert.Equal(t, uint32(2888047271), c.Calculate(block[1:101]))
