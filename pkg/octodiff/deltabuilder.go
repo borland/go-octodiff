@@ -154,7 +154,7 @@ func (d *DeltaBuilder) Build(newFile io.ReadSeeker, newFileLength int64, signatu
 		}
 	}
 
-	return nil
+	return deltaWriter.Flush()
 }
 
 // returns chunkMap, minChunkSize, maxChunkSize

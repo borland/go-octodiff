@@ -6,8 +6,12 @@ import (
 )
 
 type BinaryDeltaWriter struct {
-	Output io.Writer
+	Output             io.Writer
+	bufferedCopyOffset int64
+	bufferedCopyLength int64
 }
+
+var _ DeltaWriter = (*BinaryDeltaWriter)(nil)
 
 func NewBinaryDeltaWriter(output io.Writer) *BinaryDeltaWriter {
 	return &BinaryDeltaWriter{
@@ -43,15 +47,44 @@ func (w *BinaryDeltaWriter) WriteMetadata(hashAlgorithm HashAlgorithm, expectedN
 // WriteCopyCommand writes the "Copy Command" header to `output`
 // followed by offset and length; There's no data
 func (w *BinaryDeltaWriter) WriteCopyCommand(offset int64, length int64) error {
-	_, err := w.Output.Write(BinaryCopyCommand)
+	if w.bufferedCopyLength == 0 { // just buffer it
+		w.bufferedCopyOffset = offset
+		w.bufferedCopyLength = length
+	} else { // we have a buffered value, either merge or write the previous value and buffer this one
+		if w.bufferedCopyOffset+w.bufferedCopyLength == offset { // merge
+			w.bufferedCopyLength += length
+		} else { // write previous and buffer this one
+			err := writeCopyCommand(w.Output, w.bufferedCopyOffset, w.bufferedCopyLength)
+			w.bufferedCopyOffset = offset
+			w.bufferedCopyLength = length
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeCopyCommand(output io.Writer, offset, length int64) error {
+	_, err := output.Write(BinaryCopyCommand)
 	if err != nil {
 		return err
 	}
-	err = binary.Write(w.Output, binary.LittleEndian, offset)
+	err = binary.Write(output, binary.LittleEndian, offset)
 	if err != nil {
 		return err
 	}
-	return binary.Write(w.Output, binary.LittleEndian, length)
+	return binary.Write(output, binary.LittleEndian, length)
+}
+
+func (w *BinaryDeltaWriter) Flush() error {
+	if w.bufferedCopyLength != 0 {
+		err := writeCopyCommand(w.Output, w.bufferedCopyOffset, w.bufferedCopyLength)
+		w.bufferedCopyOffset = 0
+		w.bufferedCopyLength = 0
+		return err
+	}
+
+	return nil
 }
 
 // WriteDataCommand writes the "Data Command" header to `output`
