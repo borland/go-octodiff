@@ -61,8 +61,31 @@ func TestMergesSequentialCopyCommands(t *testing.T) {
 	err = w.WriteCopyCommand(385, 128)
 	assert.Nil(t, err)
 
-	w.Flush()
+	err = w.Flush()
+	assert.Nil(t, err)
 
 	// 0x60 signifies a copy command, we can see there's only two here
 	assert.Equal(t, "60000000000000000080010000000000006081010000000000008000000000000000", hex.EncodeToString(b.Bytes()))
+}
+
+func TestDataCommandFlushesCopyCommand(t *testing.T) {
+	b := bytes.NewBuffer(nil)
+	w := octodiff.NewBinaryDeltaWriter(b)
+
+	source := bytes.NewReader(test.GenerateTestData(1024))
+	var err error
+	// these would get merged but they won't because there's a Data command in the middle
+	err = w.WriteCopyCommand(0, 128)
+	assert.Nil(t, err)
+
+	err = w.WriteDataCommand(source, 500, 128)
+	assert.Nil(t, err)
+
+	err = w.WriteCopyCommand(128, 128)
+	assert.Nil(t, err)
+
+	err = w.Flush()
+	assert.Nil(t, err)
+
+	assert.Equal(t, "6000000000000000008000000000000000808000000000000000bd7ce51a34612015a74648787c7a7e032645377030820204308201aba003020102021418d83f07718be4121df0a18d7610faf8d7a3bec4300a06082a8648ce3d0403023058310b30090603550406130241553113301106035504080c0a536f6d652d537461746531173015060355040a0c0e4f63746f707573204465706c6f796080000000000000008000000000000000", hex.EncodeToString(b.Bytes()))
 }

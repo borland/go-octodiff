@@ -18,28 +18,36 @@ type PatchOptions struct {
 }
 
 func NewCmdPatch() *cobra.Command {
-	deltaOpts := &PatchOptions{}
+	patchOpts := &PatchOptions{}
 	cmd := &cobra.Command{
 		Use:  "patch <basis-file> <delta-file> <new-file>",
 		Long: "Given a basis file, and a delta, produces the new file.",
 		RunE: func(c *cobra.Command, args []string) error {
 			// pick up positional arguments if not explicitly specified using --basis-file and --signature-file
 			argOffset := 0
-			if deltaOpts.DeltaFile == "" && len(args) > argOffset {
-				deltaOpts.DeltaFile = args[argOffset]
+			if patchOpts.BasisFile == "" && len(args) > argOffset {
+				patchOpts.BasisFile = args[argOffset]
 				argOffset += 1
 			}
-			return patchRun(deltaOpts)
+			if patchOpts.DeltaFile == "" && len(args) > argOffset {
+				patchOpts.DeltaFile = args[argOffset]
+				argOffset += 1
+			}
+			if patchOpts.NewFile == "" && len(args) > argOffset {
+				patchOpts.NewFile = args[argOffset]
+				argOffset += 1
+			}
+			return patchRun(patchOpts)
 		},
 	}
 
 	flags := cmd.Flags()
 
-	flags.StringVarP(&deltaOpts.BasisFile, "basis-file", "", "", "The file that the delta was created for.")
-	flags.StringVarP(&deltaOpts.DeltaFile, "delta-file", "", "", "The delta to apply to the basis file.")
-	flags.StringVarP(&deltaOpts.NewFile, "new-file", "", "", "The file to write the result to.")
-	flags.BoolVarP(&deltaOpts.Progress, "progress", "", false, "Whether progress should be written to stdout.")
-	flags.BoolVarP(&deltaOpts.SkipVerification, "skip-verification", "", false, "Skip checking whether the basis file is the same as the file used to produce the signature that created the delta.")
+	flags.StringVarP(&patchOpts.BasisFile, "basis-file", "", "", "The file that the delta was created for.")
+	flags.StringVarP(&patchOpts.DeltaFile, "delta-file", "", "", "The delta to apply to the basis file.")
+	flags.StringVarP(&patchOpts.NewFile, "new-file", "", "", "The file to write the result to.")
+	flags.BoolVarP(&patchOpts.Progress, "progress", "", false, "Whether progress should be written to stdout.")
+	flags.BoolVarP(&patchOpts.SkipVerification, "skip-verification", "", false, "Skip checking whether the basis file is the same as the file used to produce the signature that created the delta.")
 
 	return cmd
 }

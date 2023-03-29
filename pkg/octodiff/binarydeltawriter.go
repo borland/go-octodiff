@@ -90,6 +90,11 @@ func (w *BinaryDeltaWriter) Flush() error {
 // WriteDataCommand writes the "Data Command" header to `output`
 // then proceeds to read `length` bytes from `source`, seeking to `offset` and write those to `output`
 func (w *BinaryDeltaWriter) WriteDataCommand(source io.ReadSeeker, offset int64, length int64) (err error) {
+	err = w.Flush()
+	if err != nil {
+		return
+	}
+
 	_, err = w.Output.Write(BinaryDataCommand)
 	if err != nil {
 		return

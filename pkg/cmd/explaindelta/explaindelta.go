@@ -62,13 +62,13 @@ func explainDeltaRun(cmd *cobra.Command, opts *ExplainDeltaOptions) error {
 
 	return deltaReader.Apply(func(bytes []byte) error {
 		if len(bytes) > 20 {
-			cmd.Printf("Data: (%d bytes): {v}...", len(bytes), hex.EncodeToString(bytes[:20]))
+			cmd.Printf("Data: (%v bytes): {%v}...\n", len(bytes), hex.EncodeToString(bytes[:20]))
 		} else {
-			cmd.Printf("Data: (%d bytes): {v}", len(bytes), hex.EncodeToString(bytes))
+			cmd.Printf("Data: (%v bytes): {%v}\n", len(bytes), hex.EncodeToString(bytes))
 		}
 		return nil
 	}, func(start int64, length int64) error {
-		cmd.Printf("Copy: %d bytes from offset %X", length, start)
+		cmd.Printf("Copy: %d bytes from offset %X\n", length, start)
 		return nil
 	})
 }

@@ -64,7 +64,6 @@ func (b *BinaryDeltaReader) Apply(writeData func([]byte) error, copyData func(in
 
 	cmdTypeByte := make([]byte, 1)
 	for {
-
 		// we should not reach EOF when reading other expected bytes like EOF, but we
 		// can rech it here once we've consumed all the commands in a file
 		bytesRead, err := b.input.Read(cmdTypeByte)
@@ -90,8 +89,11 @@ func (b *BinaryDeltaReader) Apply(writeData func([]byte) error, copyData func(in
 			if err != nil {
 				return err
 			}
-			return copyData(start, length)
-
+			err = copyData(start, length)
+			if err != nil {
+				return err
+			}
+			// loop round to read the next command
 		} else if bytes.Equal(cmdTypeByte, BinaryDataCommand) {
 			var length int64
 			err = binary.Read(b.input, binary.LittleEndian, &length)
@@ -99,14 +101,18 @@ func (b *BinaryDeltaReader) Apply(writeData func([]byte) error, copyData func(in
 				return err
 			}
 
-			iter := NewReaderIteratorBuffer(b.input, buffer)
+			iter := NewReaderIteratorBufferNBytes(b.input, buffer, length)
 			for iter.Next() {
 				err = writeData(iter.Current)
 				if err != nil {
 					return err
 				}
 			}
-			return iter.Err()
+			err = iter.Err()
+			if err != nil {
+				return err
+			}
+			// loop round to read the next command
 		} else {
 			return errors.New("unexpected cmd byte in delta file")
 		}
